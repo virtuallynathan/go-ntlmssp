@@ -99,7 +99,7 @@ func (l Negotiator) RoundTrip(req *http.Request) (res *http.Response, err error)
 			if err != nil {
 				return nil, err
 			}
-			if !resauth.IsChallenge() || len(challengeMessage) == 0 {
+			if !resauth.IsNegotiate() || len(challengeMessage) == 0 {
 				// Negotiation failed, let client deal with response
 				return res, nil
 			}
