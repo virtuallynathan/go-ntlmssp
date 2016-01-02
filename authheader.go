@@ -15,6 +15,11 @@ func (h authheader) IsNegotiate() bool {
 	return strings.HasPrefix(string(h), "Negotiate")
 }
 
+func (h authheader) IsChallenge() bool {
+	p := strings.Split(string(h), " ")
+	return len(p) == 2 && len(p[1]) > 0 && strings.HasPrefix(p[0], "NTLM")
+}
+
 func (h authheader) GetData() ([]byte, error) {
 	p := strings.Split(string(h), " ")
 	if len(p) < 2 {

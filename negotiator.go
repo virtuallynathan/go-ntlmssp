@@ -15,12 +15,15 @@ type Negotiator struct{ http.RoundTripper }
 //re-sends as needed.
 func (l Negotiator) RoundTrip(req *http.Request) (res *http.Response, err error) {
 	body := bytes.Buffer{}
-	_, err = body.ReadFrom(req.Body)
-	if err != nil {
-		return nil, err
+
+	if req.Body != nil {
+		_, err = body.ReadFrom(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		req.Body.Close()
 	}
 
-	req.Body.Close()
 	req.Body = ioutil.NopCloser(bytes.NewReader(body.Bytes()))
 
 	reqauth := authheader(req.Header.Get("Authorization"))
@@ -65,12 +68,29 @@ func (l Negotiator) RoundTrip(req *http.Request) (res *http.Response, err error)
 
 			// send negotiate
 			negotiateMessage := NewNegotiateMessage()
-			req.Header.Set("Authorization", "Negotiate "+base64.StdEncoding.EncodeToString(negotiateMessage))
+
+			// format for the Authorization request header is found here:
+			// http://davenport.sourceforge.net/ntlm.html#ntlmHttpAuthentication
+			// and https://msdn.microsoft.com/en-us/library/cc237505.aspx
+			req.Header.Set("Authorization", "NTLM " + base64.StdEncoding.EncodeToString(negotiateMessage))
 			req.Body = ioutil.NopCloser(bytes.NewReader(body.Bytes()))
 
 			res, err = l.RoundTripper.RoundTrip(req)
 			if err != nil {
 				return nil, err
+			}
+
+			// The body contents need to be read because the default Transport
+			// does not attempt to reuse HTTP/1.0 or HTTP/1.1 TCP connections
+			// ("keep-alive") unless the Body is read to completion and is closed.
+			// Without this, the subsequent request will be treated as a brand new
+			// tcp connection, which resets the NTLM handshake.
+			// Reference: https://godoc.org/net/http#Response
+			if res.Body != nil {
+				_, err = body.ReadFrom(res.Body)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			// receive challenge?
@@ -79,7 +99,7 @@ func (l Negotiator) RoundTrip(req *http.Request) (res *http.Response, err error)
 			if err != nil {
 				return nil, err
 			}
-			if !resauth.IsNegotiate() || len(challengeMessage) == 0 {
+			if !resauth.IsChallenge() || len(challengeMessage) == 0 {
 				// Negotiation failed, let client deal with response
 				return res, nil
 			}
@@ -90,7 +110,11 @@ func (l Negotiator) RoundTrip(req *http.Request) (res *http.Response, err error)
 			if err != nil {
 				return nil, err
 			}
-			req.Header.Set("Authorization", "Negotiate "+base64.StdEncoding.EncodeToString(authenticateMessage))
+
+			// format for the Authorization request header is found here:
+			// http://davenport.sourceforge.net/ntlm.html#ntlmHttpAuthentication
+			// and https://msdn.microsoft.com/en-us/library/cc237505.aspx
+			req.Header.Set("Authorization", "NTLM " + base64.StdEncoding.EncodeToString(authenticateMessage))
 			req.Body = ioutil.NopCloser(bytes.NewReader(body.Bytes()))
 
 			res, err = l.RoundTripper.RoundTrip(req)
